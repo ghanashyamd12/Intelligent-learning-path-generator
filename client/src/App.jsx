@@ -1,272 +1,298 @@
 import { useState, useEffect } from "react";
+import FlowView from "./components/FlowView";
+
+const BASE_URL = "http://localhost:5000";
 
 function App() {
-  const [goal, setGoal] = useState("");
+  const [user, setUser] = useState(null);
+  const [isLogin, setIsLogin] = useState(true);
+
   const [roadmap, setRoadmap] = useState(null);
-  const [loading, setLoading] = useState(false);
   const [showRoadmap, setShowRoadmap] = useState(false);
+  const [showForm, setShowForm] = useState(true);
 
-  /* =========================
-     LOAD FROM LOCAL STORAGE
-  ========================= */
+  const [authData, setAuthData] = useState({
+    name: "",
+    email: "",
+    password: "",
+  });
+
+  const [formData, setFormData] = useState({
+    goal: "",
+    level: "Beginner",
+  });
+
+  /* ================= AUTH ================= */
   useEffect(() => {
-    const savedRoadmap = localStorage.getItem("roadmap");
-    const savedView = localStorage.getItem("showRoadmap");
-
-    if (savedRoadmap && savedView === "true") {
-      setRoadmap(JSON.parse(savedRoadmap));
-      setShowRoadmap(true);
-    }
+    const token = localStorage.getItem("token");
+    if (token) setUser(true);
   }, []);
 
-  /* =========================
-     SAVE TO LOCAL STORAGE
-  ========================= */
-  useEffect(() => {
-    if (roadmap && showRoadmap) {
-      localStorage.setItem("roadmap", JSON.stringify(roadmap));
-      localStorage.setItem("showRoadmap", "true");
-    }
-  }, [roadmap, showRoadmap]);
+  const handleAuthChange = (e) => {
+    setAuthData({ ...authData, [e.target.name]: e.target.value });
+  };
 
-  /* =========================
-     GENERATE ROADMAP
-  ========================= */
-  const handleGenerate = async () => {
-    if (!goal.trim()) return;
+  const handleAuthSubmit = async () => {
+    console.log("LOGIN CLICKED");
+
+    const url = isLogin
+      ? `${BASE_URL}/api/auth/login`
+      : `${BASE_URL}/api/auth/register`;
 
     try {
-      setLoading(true);
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(authData),
+      });
 
-      const response = await fetch(
-        "http://localhost:5000/api/roadmap/generate",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ goal }),
-        }
-      );
+      const data = await res.json();
+      console.log("AUTH RESPONSE:", data);
 
-      if (!response.ok) {
-        throw new Error("Failed to fetch roadmap");
+      if (!res.ok) {
+        return alert(data.message || "Auth failed");
       }
 
-      const data = await response.json();
+      if (isLogin) {
+        localStorage.setItem("token", data.token);
+        setUser(true);
+      } else {
+        alert("Registered successfully. Please login.");
+        setIsLogin(true);
+      }
 
-      setRoadmap(data);
-      setShowRoadmap(true);
-    } catch (error) {
-      console.error("Error:", error);
-      alert("Something went wrong. Check backend.");
-    } finally {
-      setLoading(false);
+      setAuthData({ name: "", email: "", password: "" });
+
+    } catch (err) {
+      console.error("AUTH ERROR:", err);
+      alert("Server error");
     }
   };
 
-  /* =========================
-     LOAD LAST ROADMAP (OPTIONAL)
-  ========================= */
-  const loadLatestRoadmap = async () => {
-    try {
-      const res = await fetch(
-        "http://localhost:5000/api/roadmap/latest"
-      );
+  const handleLogout = () => {
+    localStorage.clear();
+    setUser(null);
+    setShowForm(true);
+    setShowRoadmap(false);
+    setRoadmap(null);
+  };
 
-      if (!res.ok) {
-        alert("No previous roadmap found");
+  /* ================= GENERATE ROADMAP ================= */
+  const handleGenerate = async () => {
+    console.log("GENERATE CLICKED");
+
+    if (!formData.goal.trim()) {
+      return alert("Enter a goal");
+    }
+
+    try {
+      const token = localStorage.getItem("token");
+
+      if (!token) {
+        alert("Session expired. Please login again.");
+        handleLogout();
         return;
       }
 
+      const res = await fetch(`${BASE_URL}/api/roadmap/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(formData),
+      });
+
       const data = await res.json();
+      console.log("ROADMAP RESPONSE:", data);
+
+      if (res.status === 401) {
+        alert("Session expired. Please login again.");
+        handleLogout();
+        return;
+      }
+
+      if (!res.ok) {
+        return alert(data.message || "Failed to generate roadmap");
+      }
 
       setRoadmap(data);
+      setShowForm(false);
       setShowRoadmap(true);
-    } catch (error) {
-      console.error("Error loading roadmap:", error);
+
+    } catch (err) {
+      console.error("GENERATE ERROR:", err);
+      alert("Error generating roadmap");
     }
   };
 
-  /* =========================
-     TOGGLE TASK + SAVE TO DB
-  ========================= */
-  const toggleTask = async (skillIndex, taskIndex) => {
-    if (!roadmap || !roadmap._id) return;
+  /* ================= LOGIN PAGE ================= */
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-[#0B1120] flex flex-col">
 
-    const updated = {
-      ...roadmap,
-      skills: roadmap.skills.map((skill, sIndex) =>
-        sIndex === skillIndex
-          ? {
-              ...skill,
-              tasks: skill.tasks.map((task, tIndex) =>
-                tIndex === taskIndex
-                  ? { ...task, done: !task.done }
-                  : task
-              ),
-            }
-          : skill
-      ),
-    };
+        {/* NAVBAR */}
+        <div className="flex justify-between items-center px-8 py-4 border-b border-white/10">
+          <h1 className="text-white text-lg font-semibold">SkillPath</h1>
 
-    // Update UI immediately
-    setRoadmap(updated);
+          <button
+            type="button"
+            onClick={() => setIsLogin(!isLogin)}
+            className="text-sm text-gray-300 hover:text-white"
+          >
+            {isLogin ? "Register" : "Login"}
+          </button>
+        </div>
 
-    try {
-      console.log("📡 Updating progress in DB...");
+        {/* CENTER */}
+        <div className="flex flex-1 items-center justify-center px-4">
+          <div className="w-full max-w-md bg-[#111827] p-8 rounded-xl shadow-lg border border-white/10">
 
-      await fetch(
-        `http://localhost:5000/api/roadmap/${roadmap._id}`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(updated),
-        }
-      );
+            <h2 className="text-white text-xl font-semibold mb-6 text-center">
+              {isLogin ? "Welcome Back" : "Create Account"}
+            </h2>
 
-      console.log("✅ DB Updated");
-    } catch (error) {
-      console.error("❌ Update failed:", error);
-    }
-  };
+            {!isLogin && (
+              <input
+                name="name"
+                placeholder="Full Name"
+                value={authData.name}
+                onChange={handleAuthChange}
+                autoComplete="off"
+                className="input"
+              />
+            )}
 
-  /* =========================
-     CALCULATE PROGRESS
-  ========================= */
-  const calculateProgress = () => {
-    if (!roadmap) return 0;
+            <input
+              name="email"
+              placeholder="Email"
+              value={authData.email}
+              onChange={handleAuthChange}
+              autoComplete="off"
+              className="input"
+            />
 
-    let total = 0;
-    let completed = 0;
+            <input
+              type="password"
+              name="password"
+              placeholder="Password"
+              value={authData.password}
+              onChange={handleAuthChange}
+              autoComplete="off"
+              className="input mb-4"
+            />
 
-    roadmap.skills.forEach((skill) => {
-      skill.tasks.forEach((task) => {
-        total++;
-        if (task.done) completed++;
-      });
-    });
+            <button
+              type="button"
+              onClick={handleAuthSubmit}
+              className="btn-primary w-full"
+            >
+              {isLogin ? "Login" : "Register"}
+            </button>
 
-    return total === 0 ? 0 : Math.round((completed / total) * 100);
-  };
+          </div>
+        </div>
+      </div>
+    );
+  }
 
+  /* ================= MAIN APP ================= */
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-100 to-purple-100 p-6">
+    <div className="min-h-screen bg-[#0B1120]">
 
-      {/* Header */}
-      <h1 className="text-3xl font-bold text-center mb-6">
-        Intelligent Learning Path Generator
-      </h1>
+      {/* NAVBAR */}
+      <div className="fixed top-0 left-0 w-full border-b border-white/10 bg-[#0B1120] z-50">
+        <div className="max-w-7xl mx-auto px-6 py-3 flex justify-between items-center">
 
-      {/* ================= FORM ================= */}
-      {!showRoadmap && (
-        <div className="max-w-xl mx-auto bg-white p-6 rounded-xl shadow-md">
-
-          <input
-            type="text"
-            placeholder="Enter your goal (e.g., Backend Developer)"
-            value={goal}
-            onChange={(e) => setGoal(e.target.value)}
-            className="w-full p-3 border rounded-md mb-4"
-          />
-
-          <button
-            onClick={handleGenerate}
-            disabled={loading}
-            className="w-full bg-indigo-600 text-white py-3 rounded-md hover:bg-indigo-700 transition disabled:opacity-50"
-          >
-            {loading ? "Generating..." : "Generate Roadmap"}
-          </button>
-
-          <button
-            onClick={loadLatestRoadmap}
-            className="mt-4 w-full text-indigo-600 underline"
-          >
-            Load Last Roadmap
-          </button>
-        </div>
-      )}
-
-      {/* ================= ROADMAP ================= */}
-      {showRoadmap && roadmap && (
-        <div className="mt-10 max-w-5xl mx-auto">
-
-          {/* Back Button */}
-          <button
+          <h1
             onClick={() => {
+              setShowForm(true);
               setShowRoadmap(false);
-              setGoal("");
-              setRoadmap(null);
-
-              localStorage.removeItem("roadmap");
-              localStorage.removeItem("showRoadmap");
             }}
-            className="mb-4 px-4 py-2 bg-gray-500 text-white rounded"
+            className="text-white font-semibold text-lg cursor-pointer"
           >
-            ← Back
-          </button>
+            SkillPath
+          </h1>
 
-          <h2 className="text-2xl font-semibold mb-6 text-center">
-            Roadmap for {roadmap.title}
-          </h2>
+          <div className="flex gap-6 text-sm text-gray-300">
 
-          {/* Progress */}
-          <div className="max-w-2xl mx-auto mb-8">
-            <div className="flex justify-between mb-2">
-              <span className="text-sm text-gray-600">Progress</span>
-              <span className="text-sm font-semibold text-indigo-600">
-                {calculateProgress()}%
-              </span>
-            </div>
+            <button
+              onClick={() => {
+                setShowForm(true);
+                setShowRoadmap(false);
+              }}
+              className="hover:text-white"
+            >
+              New Roadmap
+            </button>
 
-            <div className="w-full bg-gray-300 rounded-full h-4 overflow-hidden">
-              <div
-                className="bg-indigo-600 h-4 transition-all duration-500"
-                style={{ width: `${calculateProgress()}%` }}
-              ></div>
-            </div>
+            <button
+              onClick={handleLogout}
+              className="hover:text-red-400"
+            >
+              Logout
+            </button>
+
           </div>
-
-          {/* Skills */}
-          <div className="grid md:grid-cols-3 gap-6">
-            {roadmap.skills.map((skill, index) => (
-              <div
-                key={index}
-                className="bg-white p-5 rounded-xl shadow-md"
-              >
-                <h3 className="font-bold text-lg mb-3 text-center">
-                  {skill.name}
-                </h3>
-
-                <div className="space-y-2">
-                  {skill.tasks.map((task, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={task.done}
-                        onChange={() => toggleTask(index, i)}
-                      />
-
-                      <span
-                        className={
-                          task.done
-                            ? "line-through text-gray-400"
-                            : "text-gray-700"
-                        }
-                      >
-                        {task.title}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-
         </div>
-      )}
+      </div>
+
+      {/* CONTENT */}
+      <div className="pt-20 px-6">
+
+        {/* FORM */}
+        {showForm && (
+          <div className="max-w-2xl mx-auto mt-10 bg-[#111827] p-8 rounded-xl border border-white/10 shadow-lg">
+
+            <h2 className="text-white text-xl mb-6 text-center">
+              Build Your Roadmap
+            </h2>
+
+            <input
+              placeholder="Goal (e.g., Backend Developer)"
+              value={formData.goal}
+              onChange={(e) =>
+                setFormData({ ...formData, goal: e.target.value })
+              }
+              className="input mb-4"
+            />
+
+            <select
+              value={formData.level}
+              onChange={(e) =>
+                setFormData({ ...formData, level: e.target.value })
+              }
+              className="input mb-6"
+            >
+              <option>Beginner</option>
+              <option>Intermediate</option>
+              <option>Advanced</option>
+            </select>
+
+            <button
+              onClick={handleGenerate}
+              className="btn-primary w-full"
+            >
+              Generate Roadmap
+            </button>
+          </div>
+        )}
+
+        {/* GRAPH */}
+        {showRoadmap && roadmap && (
+          <div className="max-w-6xl mx-auto mt-10">
+
+            <h2 className="text-white text-2xl mb-4 text-center">
+              {roadmap.title}
+            </h2>
+
+            <FlowView roadmap={roadmap} />
+          </div>
+        )}
+
+      </div>
     </div>
   );
 }
